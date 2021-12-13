@@ -1,0 +1,25 @@
+{
+  "name": "zip-lookup-service-app",
+  "version": "1.0.2",
+  "description": "Returns the zip",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://git-codecommit.us-west-2.amazonaws.com/v1/repos/eks-dr-sample-app"
+  },
+  "author": "mahasiva",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.17.1",
+    "aws-xray-sdk": "^2.5.0",
+    "log-timestamp": "^0.3.0",
+    "log-timestamp": "*",
+    "child_process": "*",
+    "kafka-node": "*",
+    "mysql": "latest"
+  }
+}

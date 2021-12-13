@@ -1,0 +1,26 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: dtoanalysis_eks
+  region: us-west-2
+  version: "1.21"
+          
+managedNodeGroups:
+  - name: appservers
+    instanceType: t3.xlarge
+    desiredCapacity: 3
+    minSize: 1
+    maxSize: 4
+    labels: { role: appservers }
+    privateNetworking: true
+    volumeSize: 80
+    iam:
+      withAddonPolicies:
+        imageBuilder: true
+        autoScaler: true
+        xRay: true
+        cloudWatch: true
+        albIngress: true
+    ssh: 
+      enableSsm: true
