@@ -14,5 +14,7 @@ aws ecr get-login-password --region us-west-2 | docker login --username AWS --pa
 Next step is to build the app
 ```shell
 cd app
+docker build -t istio-tpr-app .
+docker tag istio-tpr-app:latest <<replace_with_account_id>>.dkr.ecr.us-west-2.amazonaws.com/istio-tpr-app:v1.0.0
+docker push <<replace_with_account_id>>.dkr.ecr.us-west-2.amazonaws.com/istio-tpr-app:v1.0.0
 ```
-
