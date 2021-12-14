@@ -1,0 +1,7 @@
+{
+   \"start\": \"-PT1H\",
+   \"periodOverride\": \"inherit\",
+   \"widgets\": [
+      ${WDGS}
+   ]
+}

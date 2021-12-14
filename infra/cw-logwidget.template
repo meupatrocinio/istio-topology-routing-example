@@ -1,0 +1,13 @@
+   {
+      \"type\": \"log\",
+      \"x\": ${X_CORD},
+      \"y\": ${Y_CORD},
+      \"width\": ${WIDTH},
+      \"height\": ${HEIGHT},
+      \"properties\": {
+      \"region\": \"${CLUSTER_REGION}\",
+      \"title\": \"${WIDGET_TITLE}\",
+      \"query\": \"SOURCE '$LOG_GROUP' | ${QUERY}\",
+      \"view\": \"${VIEW}\"
+      }
+   }

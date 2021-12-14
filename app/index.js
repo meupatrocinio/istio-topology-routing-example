@@ -2,7 +2,8 @@ const express = require('express');
 var AWS = require('aws-sdk');
 require('log-timestamp');
 const app = express();
-
+const http = require('http')
+  
 var healthyThreshold =  Number(process.env.HTHRESHOLD);
 
 AWS.config.update({region: 'us-west-2'});
@@ -36,7 +37,6 @@ app.get('/health', (req, res) => {
 function lookupZip(req,res) {
   console.log('Zip lookup received a request. Request will be traced!');
   //http://169.254.169.254/latest/meta-data/placement/availability-zone
-  const https = require('https')
   const options = {
     hostname: '169.254.169.254',
     port: 80,
@@ -44,18 +44,18 @@ function lookupZip(req,res) {
     method: 'GET'
   }
 
-  const metaReq = https.request(options, metaResp => {
-    console.log(`statusCode: ${res.statusCode}`)
+  const metaReq = http.request(options, metaResp => {
+    console.log(`statusCode: ${metaResp.statusCode}`)
   
-    res.on('data', az => {
-       res.send(`CA - ` + process.env.ZIPCODE + " ip - " + az);
+    metaResp.on('data', az => {
+       res.send(`CA - ` + process.env.ZIPCODE + " az - " + az);
     })
   })
   
-  req.on('error', error => {
+  metaReq.on('error', error => {
     console.error(error)
   })
-  req.end()
+  metaReq.end()
 }
 
 //app.use(AWSXRay.express.closeSegment());
