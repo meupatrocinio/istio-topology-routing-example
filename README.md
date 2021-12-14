@@ -40,4 +40,19 @@ aws ec2 create-flow-logs \
     --log-format '${account-id} ${action} ${az-id} ${bytes} ${dstaddr} ${end} ${dstport} ${flow-direction} ${instance-id} ${interface-id} ${log-status} ${packets} ${pkt-dst-aws-service} ${pkt-dstaddr} ${pkt-srcaddr} ${pkt-src-aws-service} ${protocol} ${region} ${srcaddr} ${srcport} ${start} ${sublocation-id} ${sublocation-type} ${subnet-id} ${traffic-path} ${tcp-flags} ${type} ${version} ${vpc-id}'
 ./create-dashboard.sh us-west-2 "alpha.eksctl.io/cluster-name" "dto-analysis-k8scluster" dto-analysis-k8scluster dto-dto-analysis-k8scluster-logs dto-analysis-k8scluster-dashboard
 ```
+Next we install Istio ingress controller, ingress and egress gateways
+```shell
+export ISTIO_VERSION="1.10.0"
+curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${ISTIO_VERSION} sh -
+cd istio-${ISTIO_VERSION}
+sudo cp -v bin/istioctl /usr/local/bin/
+istioctl version --remote=false
+yes | istioctl install --set profile=demo
+eksctl utils associate-iam-oidc-provider --cluster=dto-analysis-k8scluster --approve
+```
+Finally we install the app without istio
+```shell
+APP_POLICY_ARN=`aws iam create-policy --policy-name AppAccessPolicy --policy-document file://msk-cluster-policy.json | jq -r ".Policy.Arn"`
+eksctl create iamserviceaccount --cluster=dto-analysis-k8scluster --name=mscrudallow --namespace=octank-travel-ns --attach-policy-arn=$APP_POLICY_ARN --approve
+```
 
