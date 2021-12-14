@@ -267,7 +267,7 @@ As you could see, the calls are going to the Pods in the same AZ whereas earlier
 
 In the earlier section, we looked into how we can enable topology aware routing at Kubernetes service level. In this section, we can focus on how we can perform topology aware routing for external services and AWS services.
 
-#### a. Topology aware routing for AWS services
+#### Topology aware routing for AWS services
 
 In case of AWS services, it is a best practice to leverage VPC endpoints to communicate to the AWS Service from the VPC. When VPC Endpoints are generated, a regional endpoint and AZ specific endpoints are generated. The endpoints are DNS names that map back to ENIs created in the VPC to facilate communication with AWS service directly without using Internet or NAT gateways. These ENIs are typically created across one or more AZs. 
 
@@ -409,17 +409,66 @@ Next let us trying running a curl command to see the check the egrees traffic lo
 ```shell
 echo $PRIMARY_EP
 kubectl exec -it --tty -n octank-travel-ns $(kubectl get pod -l "app=zip-lookup-service" -n octank-travel-ns -o jsonpath='{.items[0].metadata.name}') sh
-curl <<replace_with_primary_endpoint_url>>
-
+curl <<replace_with_primary_endpoint_url>>:3305
+exit
+dig $READER_EP
 ```
 
 You should a ouput to similar to below in the terminal where you're monitoring logs
 
 ```shell
-
+[2021-12-14T18:59:41.553Z] "- - -" 0 - - - "-" 145 109 2 - "-" "-" "-" "-" "X.X.X.X:3306" outbound|3305||<<primary_endpoint_url>> 1.1.1.1:37162 X.X.X.X:3305 1.1.1.1:34828 - -
 ```
 
-The IP address of the reader database instance and IP address in the logs should match which means that we are able to route traffic to db instance in right availability using topology aware routing feature of Istio.
+The IP address of the reader database instance shown the by dig command and IP address in the Istio proxy logs should match which means that we are able to route traffic to db instance in right availability using topology aware routing feature of Istio.
+
+This example show how we can leverage topology aware routing for RDS but we can extend same mechanism to route traffic to any endpoint in the cluster VPC or any other VPCs connected to the cluster VPC.  
+
+##### ii. AWS Services with VPC Enpoints
+
+In case of VPC endpoints, the same mechanism as earlier is used but we use the regional VPC endpoint as the primary in our service entry objects. An example of S3 VPC will look as follows
+
+```yaml
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+ name: external-svc-s3
+ namespace: octank-travel-ns
+spec:
+ hosts:
+ - <<replace_with_s3_regional_endpoint>>
+ location: MESH_EXTERNAL
+ ports:
+ - number: 443
+   name: https
+   protocol: TLS
+ resolution: DNS
+ endpoints:
+ - address: <<replace_with_s3_us-west-2a_endpoint>>
+   locality: us-west-2/us-west-2a
+   ports:
+     https: 443
+ - address: <<replace_with_s3_us-west-2b_endpoint>>
+   locality: us-west-2/us-west-2b
+   ports:
+     https: 443
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+ name: external-svc-rds-dr
+ namespace: octank-travel-ns
+spec:
+ host: <<replace_with_s3_regional_endpoint>>
+ trafficPolicy:
+   outlierDetection:
+     consecutive5xxErrors: 1
+     interval: 15s
+     baseEjectionTime: 1m
+```
+
+### Conclusion
+
+In EKS cluster, data transfers costs can become a significant driver of costs. Hence we need to monitor the costs and have solutions in place to address them. In this example, we showcased how Istio can leveraged to address your data transfer costs. Along with Istio, we also recommend following best practices specified in the blog <<blogurl-TBD>> to address data transfer costs.
 
 
-##### i. AWS Services with VPC Enpoints
