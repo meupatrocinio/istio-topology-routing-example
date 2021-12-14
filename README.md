@@ -295,4 +295,89 @@ echo $PRIMARY_EP
 echo $READER_EP
 ```
 
+Next, we need to define service entry object for the RDS instance with relevant endpoints
+
+```yaml
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+ name: external-svc-rds
+spec:
+ hosts:
+ - $PRIMARY_EP
+ location: MESH_EXTERNAL
+ ports:
+ - number: 3305
+   name: tcp
+   protocol: tcp
+ resolution: DNS
+ endpoints:
+ - address: $PRIMARY_EP
+   locality: us-west-2/us-west-2a
+   ports:
+     tcp: 3306
+ - address: $READER_EP
+   locality: us-west-2/us-west-2b
+   ports:
+     tcp: 3306
+```
+
+Next we need to define destination rule object to enable topology aware routing when connecting to the RDS instances
+
+```yaml
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+ name: external-svc-rds-dr
+spec:
+ host: $PRIMARY_EP
+ trafficPolicy:
+   outlierDetection:
+     consecutive5xxErrors: 1
+     interval: 15s
+     baseEjectionTime: 1m
+```
+
+Let us start applying the service entry and destination rule objects and validate the traffic routing
+
+```shell
+cat <<EOF>> rds-se.yaml
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+ name: external-svc-rds
+spec:
+ hosts:
+ - $PRIMARY_EP
+ location: MESH_EXTERNAL
+ ports:
+ - number: 3305
+   name: tcp
+   protocol: tcp
+ resolution: DNS
+ endpoints:
+ - address: $PRIMARY_EP
+   locality: us-west-2/us-west-2a
+   ports:
+     tcp: 3306
+ - address: $READER_EP
+   locality: us-west-2/us-west-2b
+   ports:
+     tcp: 3306
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+ name: external-svc-rds-dr
+spec:
+ host: $PRIMARY_EP
+ trafficPolicy:
+   outlierDetection:
+     consecutive5xxErrors: 1
+     interval: 15s
+     baseEjectionTime: 1m
+EOF
+
+```
+
 ##### i. AWS Services with VPC Enpoints
