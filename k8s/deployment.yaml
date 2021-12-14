@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kubernetes.io/change-cause: v1.0.0
+  name: zip-lookup-service-deployment
+  namespace: octank-travel-ns
+  labels:
+    app: zip-lookup-service
+    deployType: live
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: zip-lookup-service
+  template:
+    metadata:
+      labels:
+        app: zip-lookup-service
+        deployType: live
+      namespace: octank-travel-ns
+    spec:
+      serviceAccountName: mscrudallow
+      containers:
+      - name: zip-lookup-service
+        image: <<replace_with_account_id>>.dkr.ecr.us-west-2.amazonaws.com/istio-tpr-app:v1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: "250m"
+        env:
+          - name: XRAY_URL
+            value: "xray-service.default:2000"
+          - name: APPNAME_NAME
+            value: "zip-service.octank-travel"
+          - name: ZIPCODE
+            value: "94582"
+          - name: HTHRESHOLD
+            value: "1"
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['app']
+          - name: kafka_endpoint
+            value: "mskdto.octank-internal.com:9095"
+          - name: kafka_topic
+            value:  "dtoanalysis-test"
+          - name: RDS_HOSTNAME
+            value: "rdsdto.octank-internal.com"
+          - name: ES_HOSTNAME
+            value: "esdto.octank-internal.com"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5

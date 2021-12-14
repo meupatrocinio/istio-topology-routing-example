@@ -1,0 +1,17 @@
+{
+   "Version":"2012-10-17",
+   "Statement":[
+      {
+         "Sid":"UpdateCluster",
+         "Effect":"Allow",
+         "Action":[
+            "kafka:Create*",
+            "kafka:Describe*",
+            "kafka:Get*",
+            "kafka:List*",
+            "kafka:Update*"
+         ],
+         "Resource":"*"
+      }
+   ]
+}
