@@ -282,13 +282,15 @@ RDS sevice does not require VPC endpoints, however there are DB primary and seco
 Let us start by creating an Aurora MySQL RDS database server for testing purpose with a reader enpoint.
 
 ```shell
-export CLUSTER_SG_ID=($(aws eks describe-cluster --name dto-analysis-k8scluster | jq -r '.cluster.resourcesVpcConfig.securityGroupIds[0]'))
+export CLUSTER_SG_ID=($(aws eks describe-cluster --name dto-analysis-k8scluster | jq -r '.cluster.resourcesVpcConfig.clusterSecurityGroupId'))
 echo $CLUSTER_SG_ID
 export CLUSTER_SUBNET_1=($(aws ec2 describe-subnets --region us-west-2  --filters Name="vpc-id",Values=${CLUSTER_VPC_ID} Name="availability-zone",Values=us-west-2a | jq -r '.Subnets[].SubnetId'))
 export CLUSTER_SUBNET_2=($(aws ec2 describe-subnets --region us-west-2  --filters Name="vpc-id",Values=${CLUSTER_VPC_ID} Name="availability-zone",Values=us-west-2b | jq -r '.Subnets[].SubnetId'))
 echo $CLUSTER_SUBNET_1 $CLUSTER_SUBNET_2
 aws rds create-db-subnet-group --db-subnet-group-name default-subnet-group --db-subnet-group-description "test DB subnet group" --subnet-ids "$CLUSTER_SUBNET_1" "$CLUSTER_SUBNET_2"
 aws rds create-db-cluster --db-cluster-identifier dto-analysis-k8scluster-rds --engine aurora-mysql --engine-version 5.7.12 --master-username master --master-user-password secret99 --db-subnet-group-name default-subnet-group --vpc-security-group-ids $CLUSTER_SG_ID
+aws rds create-db-instance --db-instance-identifier write-instance --db-cluster-identifier dto-analysis-k8scluster-rds --engine aurora-mysql --db-instance-class db.r5.large
+aws rds create-db-instance --db-instance-identifier read-instance --db-cluster-identifier dto-analysis-k8scluster-rds --engine aurora-mysql --db-instance-class db.r5.large --availability-zone us-west-2b
 export PRIMARY_EP=($(aws rds describe-db-clusters --db-cluster-identifier dto-analysis-k8scluster-rds | jq -r '.DBClusters[].Endpoint'))
 export READER_EP=($(aws rds describe-db-clusters --db-cluster-identifier dto-analysis-k8scluster-rds | jq -r '.DBClusters[].ReaderEndpoint'))
 echo $PRIMARY_EP
@@ -302,6 +304,7 @@ apiVersion: networking.istio.io/v1beta1
 kind: ServiceEntry
 metadata:
  name: external-svc-rds
+ namespace: octank-travel-ns
 spec:
  hosts:
  - $PRIMARY_EP
@@ -322,13 +325,14 @@ spec:
      tcp: 3306
 ```
 
-Next we need to define destination rule object to enable topology aware routing when connecting to the RDS instances
+Next, we need to define destination rule object to enable topology aware routing when connecting to the RDS instances
 
 ```yaml
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
  name: external-svc-rds-dr
+ namespace: octank-travel-ns
 spec:
  host: $PRIMARY_EP
  trafficPolicy:
@@ -338,14 +342,16 @@ spec:
      baseEjectionTime: 1m
 ```
 
-Let us start applying the service entry and destination rule objects and validate the traffic routing
+Next, we need to apply the service entry and destination rule objects.
 
 ```shell
-cat <<EOF>> rds-se.yaml
+#created a single file with the service entry and destination rule object
+cat <<EOF> rds-se.yaml
 apiVersion: networking.istio.io/v1beta1
 kind: ServiceEntry
 metadata:
  name: external-svc-rds
+ namespace: octank-travel-ns
 spec:
  hosts:
  - $PRIMARY_EP
@@ -369,6 +375,7 @@ apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
  name: external-svc-rds-dr
+ namespace: octank-travel-ns
 spec:
  host: $PRIMARY_EP
  trafficPolicy:
@@ -377,7 +384,42 @@ spec:
      interval: 15s
      baseEjectionTime: 1m
 EOF
+kubectl apply -f rds-se.yaml
 
 ```
+
+Next, we need to validate the configuration. For that we need to ensure we are logging in to a Pod that is running in us-west-2b. In this case, the ***.items[0].metadata.name*** represents a Pod running in us-west-2b but in your case it may be different. Hence trying running with different number e.g. ***.items[1].metadata.name*** and checking AZ through ***curl -s 169.254.169.254/latest/meta-data/placement/availability-zone*** until you land on a Pod in the us-west-2b AZ.
+
+```shell
+kubectl exec -it --tty -n octank-travel-ns $(kubectl get pod -l "app=zip-lookup-service" -n octank-travel-ns -o jsonpath='{.items[0].metadata.name}') sh
+curl -s 169.254.169.254/latest/meta-data/placement/availability-zone
+exit
+
+````
+
+Next we need to monitor the Istio proxy logs associated with the Pod we selected. This is to see where the egress traffic is landing. Perform the below operation in a seperate terminal
+
+```shell
+kubectl logs $(kubectl get pod -l "app=zip-lookup-service" -n octank-travel-ns -o jsonpath='{.items[0].metadata.name}') -n octank-travel-ns -c istio-proxy -f
+
+```
+
+Next let us trying running a curl command to see the check the egrees traffic logs in the Istio proxy container
+
+```shell
+echo $PRIMARY_EP
+kubectl exec -it --tty -n octank-travel-ns $(kubectl get pod -l "app=zip-lookup-service" -n octank-travel-ns -o jsonpath='{.items[0].metadata.name}') sh
+curl <<replace_with_primary_endpoint_url>>
+
+```
+
+You should a ouput to similar to below in the terminal where you're monitoring logs
+
+```shell
+
+```
+
+The IP address of the reader database instance and IP address in the logs should match which means that we are able to route traffic to db instance in right availability using topology aware routing feature of Istio.
+
 
 ##### i. AWS Services with VPC Enpoints
