@@ -1,8 +1,8 @@
-# Istio Topology based routing example
+# Istio topology based routing example
 
 This respoistory contains the examples to do topology based routing as specified in the blog <<link to the blog>>. 
 There is "app" folder which contains code to build the app and "k8s" module which contains Kubenetes spec files to deploy to run the examples. Ensure that while following the instructions **<<>>** are replaced with the right value. For example **<<replace_with_account_id>>** should be replaced with the relevant account number.
-## Pre-requistes
+
 ### 1. Build and publish the example app
 
 First step is build the clone the application code and create and ecr repository and login to the repository
@@ -73,7 +73,12 @@ kubectl run curl-debug --image=radial/busyboxplus:curl -l "type=testcontainer" -
 curl -s 169.254.169.254/latest/meta-data/placement/availability-zone
 #exit the test container
 exit
-#expose a service for the test container
+
+```
+
+Expose the curl-debug deployment as service
+
+```shell
 kubectl expose deploy curl-debug -n octank-travel-ns --port=80 --target-port=8000
 ```
 
@@ -169,18 +174,72 @@ zip-lookup-service-deployment-645d5c8df5-tt92m   2/2     Running   0          3m
 ```
 The number of containers per pod is "2" as the side cars have been injected.
 
+Perform the scale down and scale up for the test container to ensure side car is injected to the test container also.
+
+```shell
+kubectl get deploy -n octank-travel-ns
+kubectl scale deploy curl-debug -n octank-travel-ns --replicas=0
+kubectl scale deploy curl-debug -n octank-travel-ns --replicas=1
+kubectl get po -n octank-travel-ns
+
+```
+
+The console should be should be similar to below
+
+```shell
+curl-debug-86c79f68c4-vdwff                      2/2     Running       0          6s
+```
+
+Ensure the test scripts are installed again in the newly created test container
+
+```shell
+kubectl exec -it --tty -n octank-travel-ns $(kubectl get pod -l "type=testcontainer" -n octank-travel-ns -o jsonpath='{.items[0].metadata.name}') sh
+#create a startup script
+cat <<EOF>> test.sh
+n=1
+while [ \$n -le 5 ]
+do
+     curl -s zip-lookup-service-local.octank-travel-ns
+     sleep 1
+     echo "---"
+     n=\$(( n+1 ))
+done
+EOF
+chmod +x test.sh
+#exit the test container
+exit
+
+```
+
 #### b. Enable topology aware routing 
 
 To enable topology aware routing, we need to create a destination rule and link it to the zip-lookup-service-local
 
+```yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: zip-lookup-service-local
+  namespace: octank-travel-ns
+spec:
+  host: zip-lookup-service-local
+  trafficPolicy:
+    outlierDetection:
+      consecutiveErrors: 7
+      interval: 30s
+      baseEjectionTime: 30s
+```
+
 ```shell
 kubectl apply -f destinationrule.yaml
+    
 ```
 
 Let us log back into the test container to validate 
 
 ```shell
 kubectl exec -it --tty -n octank-travel-ns $(kubectl get pod -l "type=testcontainer" -n octank-travel-ns -o jsonpath='{.items[0].metadata.name}') sh
+    
 ```
 
 Run the following commands in the test container
@@ -188,13 +247,52 @@ Run the following commands in the test container
 ```shell
 curl -s 169.254.169.254/latest/meta-data/placement/availability-zone
 ./test.sh
+exit
+
 ```
 
-The console output should be as follows
+The console output should show all traffic going to the same AZ
 
 ```shell
+CA - 94582 az - us-west-2a---
+CA - 94582 az - us-west-2a---
+CA - 94582 az - us-west-2a---
+CA - 94582 az - us-west-2a---
+CA - 94582 az - us-west-2a---
 ```
 
 As you could see, the calls are going to the Pods in the same AZ whereas earlier the calls were distributed across multiple AZs where the pods were running. This means that topology aware routing is sucessful for Pod to Pod communication and will result in **significant** cost saves in terms data transfer costs.
 
 ### 3. Using Istio to avoid inter-AZ data transfers costs for calls to AWS services
+
+In the earlier section, we looked into how we can enable topology aware routing at Kubernetes service level. In this section, we can focus on how we can perform topology aware routing for external services and AWS services.
+
+#### a. Topology aware routing for AWS services
+
+In case of AWS services, it is a best practice to leverage VPC endpoints to communicate to the AWS Service from the VPC. When VPC Endpoints are generated, a regional endpoint and AZ specific endpoints are generated. The endpoints are DNS names that map back to ENIs created in the VPC to facilate communication with AWS service directly without using Internet or NAT gateways. These ENIs are typically created across one or more AZs. 
+
+When we configure a Pod with a regional endpoint, the endpoint may resolve one of the AZ specific ENIs and depending which AZ the Pod is running there may inter-AZ costs when using regional VPC endpoints. We cannot use the AZ specific endpoints because the Pod can relocated to any node in any AZ by the Kubernetes scheduler.
+
+So in order to address this issue, we can leverage Istio's Service Entry objects to enable topology aware routing to AWS service VPC endpoints.
+
+##### i. AWS Services with no VPC Enpoint 
+
+RDS sevice does not require VPC endpoints, however there are DB primary and secondary nodes (read replicas) which are AZ specific. Hence we need to have mechanism to configure the Pods to route read calls specially to one of the DB instances, primary or secondary, depending on the AZ of the Pod.
+
+Let us start by creating an Aurora MySQL RDS database server for testing purpose with a reader enpoint.
+
+```shell
+export CLUSTER_SG_ID=($(aws eks describe-cluster --name dto-analysis-k8scluster | jq -r '.cluster.resourcesVpcConfig.securityGroupIds[0]'))
+echo $CLUSTER_SG_ID
+export CLUSTER_SUBNET_1=($(aws ec2 describe-subnets --region us-west-2  --filters Name="vpc-id",Values=${CLUSTER_VPC_ID} Name="availability-zone",Values=us-west-2a | jq -r '.Subnets[].SubnetId'))
+export CLUSTER_SUBNET_2=($(aws ec2 describe-subnets --region us-west-2  --filters Name="vpc-id",Values=${CLUSTER_VPC_ID} Name="availability-zone",Values=us-west-2b | jq -r '.Subnets[].SubnetId'))
+echo $CLUSTER_SUBNET_1 $CLUSTER_SUBNET_2
+aws rds create-db-subnet-group --db-subnet-group-name default-subnet-group --db-subnet-group-description "test DB subnet group" --subnet-ids "$CLUSTER_SUBNET_1" "$CLUSTER_SUBNET_2"
+aws rds create-db-cluster --db-cluster-identifier dto-analysis-k8scluster-rds --engine aurora-mysql --engine-version 5.7.12 --master-username master --master-user-password secret99 --db-subnet-group-name default-subnet-group --vpc-security-group-ids $CLUSTER_SG_ID
+export PRIMARY_EP=($(aws rds describe-db-clusters --db-cluster-identifier dto-analysis-k8scluster-rds | jq -r '.DBClusters[].Endpoint'))
+export READER_EP=($(aws rds describe-db-clusters --db-cluster-identifier dto-analysis-k8scluster-rds | jq -r '.DBClusters[].ReaderEndpoint'))
+echo $PRIMARY_EP
+echo $READER_EP
+```
+
+##### i. AWS Services with VPC Enpoints
