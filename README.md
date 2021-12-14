@@ -25,7 +25,7 @@ First step is to create a EKS cluster to perform data analysis
 cd infra
 eksctl create cluster -f eksdtoanalysis.yaml
 ```
-Next, we need to enable VPC Flow Logs for the cluster VPC
+Next, we need to enable VPC Flow Logs for the cluster VPC. The flow logs can be used to analyze which type of traffic results in data transfers costs through CloudWatch dashboards
 ```shell
 export CLUSTER_VPC_ID=($(aws ec2 describe-vpcs --region us-west-2  --filters Name="tag:alpha.eksctl.io/cluster-name",Values=dto-analysis-k8scluster | jq -r '.Vpcs[].VpcId'))
 export FL_ROLE_ID=($(aws iam create-role --role-name dtoanalysis-fllogs-role --assume-role-policy-document file://flowlogstrustpolicy.json | jq -r '.Role.Arn'))
@@ -38,5 +38,6 @@ aws ec2 create-flow-logs \
     --log-destination-type cloud-watch-logs \
     --log-destination  'arn:aws:logs:us-west-2:<<replace_with_account_id>>:log-group:dto-dto-analysis-k8scluster-logs' \
     --log-format '${account-id} ${action} ${az-id} ${bytes} ${dstaddr} ${end} ${dstport} ${flow-direction} ${instance-id} ${interface-id} ${log-status} ${packets} ${pkt-dst-aws-service} ${pkt-dstaddr} ${pkt-srcaddr} ${pkt-src-aws-service} ${protocol} ${region} ${srcaddr} ${srcport} ${start} ${sublocation-id} ${sublocation-type} ${subnet-id} ${traffic-path} ${tcp-flags} ${type} ${version} ${vpc-id}'
+./create-dashboard.sh us-west-2 "alpha.eksctl.io/cluster-name" "dto-analysis-k8scluster" dto-analysis-k8scluster dto-dto-analysis-k8scluster-logs dto-analysis-k8scluster-dashboard
 ```
 
